@@ -281,7 +281,6 @@ jobs:
             vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
             vcpkg-${{ runner.os }}-nuget-geo-
             vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
-            vcpkg-${{ runner.os }}-nuget-core-
             vcpkg-${{ runner.os }}-nuget-
 
       - name: Configure NuGet authentication
