@@ -174,6 +174,13 @@ env:
   VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
 ```
 
+**Important** : Les workflows configurent également vcpkg pour utiliser NuGet via :
+- `vcpkg fetch nuget` : Télécharge l'exécutable NuGet utilisé par vcpkg
+- `nuget sources add` : Ajoute la source GitHub Packages avec authentification
+- `nuget setapikey` : Configure la clé API pour l'upload des packages
+
+Cette configuration est **essentielle** pour que vcpkg puisse uploader les binaires vers GitHub Packages.
+
 ## Dépannage
 
 ### Erreur d'authentification NuGet
@@ -189,9 +196,12 @@ env:
 **Symptôme** : Le cache NuGet reste vide
 
 **Solution** :
+- ✅ **FIX APPLIQUÉ** : Les workflows ont été mis à jour pour configurer correctement vcpkg NuGet avec `vcpkg fetch nuget` et `nuget setapikey`
 - Vérifier les logs de vcpkg : `vcpkg help binarycaching`
 - Vérifier la configuration NuGet dans `$env:APPDATA\NuGet\NuGet.Config`
 - Vérifier que `VCPKG_BINARY_SOURCES` est bien défini
+- Vérifier que vcpkg utilise bien son propre exécutable NuGet (installé via `vcpkg fetch nuget`)
+- Vérifier que l'authentification est configurée avec `nuget sources add` et `nuget setapikey`
 
 ### Build toujours lent
 

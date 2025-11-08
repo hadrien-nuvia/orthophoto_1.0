@@ -216,19 +216,37 @@ jobs:
           
           # Écrire le fichier de configuration
           $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
           
-          Write-Host "NuGet configuration créée avec succès"
+          # Also configure mono for vcpkg NuGet integration (required for vcpkg to use NuGet)
+          $monoNugetConfigPath = "$env:APPDATA\..\Local\NuGet"
+          if (-not (Test-Path $monoNugetConfigPath)) {
+            New-Item -ItemType Directory -Path $monoNugetConfigPath -Force | Out-Null
+          }
+          $nugetConfig | Out-File -FilePath "$monoNugetConfigPath\NuGet.Config" -Encoding utf8
 
       - name: Configure vcpkg for NuGet binary caching
         shell: pwsh
         run: |
           # Installer mono pour vcpkg (requis pour NuGet sur Windows)
-          Write-Host "Configuration du cache binaire NuGet vcpkg..."
+          Write-Host "Configuration du cache binaire NuGet vcpkg..." -ForegroundColor Cyan
           
           # Définir les variables d'environnement pour vcpkg
           [System.Environment]::SetEnvironmentVariable('VCPKG_BINARY_SOURCES', $env:VCPKG_BINARY_SOURCES, 'Process')
           
           Write-Host "VCPKG_BINARY_SOURCES = $env:VCPKG_BINARY_SOURCES"
+          
+          # Fetch vcpkg's NuGet executable and configure the source
+          $vcpkgNuget = & "$env:VCPKG_ROOT\vcpkg" fetch nuget
+          Write-Host "vcpkg NuGet path: $vcpkgNuget"
+          
+          # Add the GitHub Packages source using vcpkg's nuget (suppress errors if already exists)
+          & $vcpkgNuget sources add -Name "github" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -Username "${{ github.repository_owner }}" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText 2>&1 | Out-Null
+          
+          # Set API key for reading packages from the cache
+          & $vcpkgNuget setapikey "${{ secrets.GITHUB_TOKEN }}" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" 2>&1 | Out-Null
+          
+          Write-Host "✓ vcpkg NuGet binary cache configured successfully" -ForegroundColor Green
 
       - name: Show cache hit info
         shell: pwsh
