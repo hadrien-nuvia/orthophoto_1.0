@@ -104,7 +104,18 @@ jobs:
             }
 
             $owner = "${{ github.repository_owner }}"
-            $apiUrl = "https://api.github.com/orgs/$owner/packages?package_type=nuget&per_page=10"
+            
+            # Detect if owner is an organization or user account
+            Write-Host "Detecting owner type..." -ForegroundColor Cyan
+            $ownerInfoUrl = "https://api.github.com/users/$owner"
+            $ownerInfo = Invoke-RestMethod -Uri $ownerInfoUrl -Headers $headers -Method Get
+            
+            $isOrg = $ownerInfo.type -eq "Organization"
+            $ownerType = if ($isOrg) { "orgs" } else { "users" }
+            
+            Write-Host "Owner '$owner' is a $($ownerInfo.type)" -ForegroundColor Gray
+            
+            $apiUrl = "https://api.github.com/$ownerType/$owner/packages?package_type=nuget&per_page=10"
             
             Write-Host "Querying GitHub Packages API..." -ForegroundColor Cyan
             Write-Host "API URL: $apiUrl"
@@ -224,14 +235,25 @@ jobs:
           $owner = "${{ github.repository_owner }}"
           $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
           
-          # Fetch all NuGet packages from the organization
+          # Detect if owner is an organization or user account
+          Write-Host "Detecting owner type..." -ForegroundColor Cyan
+          $ownerInfoUrl = "https://api.github.com/users/$owner"
+          $ownerInfo = Invoke-RestMethod -Uri $ownerInfoUrl -Headers $headers -Method Get
+          
+          $isOrg = $ownerInfo.type -eq "Organization"
+          $ownerType = if ($isOrg) { "orgs" } else { "users" }
+          
+          Write-Host "Owner '$owner' is a $($ownerInfo.type)" -ForegroundColor Gray
+          Write-Host ""
+          
+          # Fetch all NuGet packages from the owner (organization or user)
           # GitHub API paginates results, so we need to fetch multiple pages
           $allPackages = @()
           $page = 1
           $perPage = 100
           
           do {
-            $apiUrl = "https://api.github.com/orgs/$owner/packages?package_type=nuget&per_page=$perPage&page=$page"
+            $apiUrl = "https://api.github.com/$ownerType/$owner/packages?package_type=nuget&per_page=$perPage&page=$page"
             
             try {
               $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
