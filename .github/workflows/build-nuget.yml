@@ -21,46 +21,141 @@ env:
   VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
 
 jobs:
-  check-cache:
+  verify-nuget-packages-exist:
     runs-on: windows-latest
     outputs:
-      cache-hit: ${{ steps.cache-check.outputs.cache-hit }}
+      packages-found: ${{ steps.check-packages.outputs.packages-found }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Check for existing vcpkg cache
-        id: cache-check
-        uses: actions/cache/restore@v3
-        with:
-          path: |
-            ${{ github.workspace }}/vcpkg/downloads
-            ${{ github.workspace }}/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-${{ hashFiles('**/vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-
-            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-${{ hashFiles('**/vcpkg.json') }}
-            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-
-            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-${{ hashFiles('**/vcpkg.json') }}
-            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-
-            vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
-            vcpkg-${{ runner.os }}-nuget-geo-
-            vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
-            vcpkg-${{ runner.os }}-nuget-core-
-            vcpkg-${{ runner.os }}-nuget-
+      - name: Check for required NuGet packages in GitHub Packages
+        id: check-packages
+        shell: pwsh
+        run: |
+          Write-Host "Checking GitHub Packages for required vcpkg binaries..." -ForegroundColor Cyan
+          Write-Host ""
+
+          # List of key packages we require
+          $keyPackages = @("vtk", "pcl", "pdal", "gdal", "proj", "geos", "zlib", "qtbase")
+
+          Write-Host "Looking for the following key packages:" -ForegroundColor Yellow
+          $keyPackages | ForEach-Object { Write-Host "  - $_" }
+          Write-Host ""
+
+          # Use GitHub API to fetch packages
+          Write-Host "Fetching package list from GitHub Packages API..." -ForegroundColor Cyan
+          
+          $headers = @{
+            'Authorization' = 'Bearer ${{ secrets.GITHUB_TOKEN }}'
+            'Accept' = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+
+          $owner = "${{ github.repository_owner }}"
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          
+          # Detect if owner is an organization or user account
+          Write-Host "Detecting owner type..." -ForegroundColor Cyan
+          $ownerInfoUrl = "https://api.github.com/users/$owner"
+          $ownerInfo = Invoke-RestMethod -Uri $ownerInfoUrl -Headers $headers -Method Get
+          
+          $isOrg = $ownerInfo.type -eq "Organization"
+          $ownerType = if ($isOrg) { "orgs" } else { "users" }
+          
+          Write-Host "Owner '$owner' is a $($ownerInfo.type)" -ForegroundColor Gray
+          Write-Host ""
+          
+          # Fetch all NuGet packages from the owner (organization or user)
+          $allPackages = @()
+          $page = 1
+          $perPage = 100
+          
+          do {
+            $apiUrl = "https://api.github.com/$ownerType/$owner/packages?package_type=nuget&per_page=$perPage&page=$page"
+            
+            try {
+              $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
+              
+              if ($response -and $response.Count -gt 0) {
+                $allPackages += $response
+                Write-Host "  Fetched page $page`: $($response.Count) packages" -ForegroundColor Gray
+                $page++
+              } else {
+                break
+              }
+            } catch {
+              Write-Host "  Error fetching page $page`: $_" -ForegroundColor Yellow
+              break
+            }
+          } while ($response.Count -eq $perPage)
+          
+          Write-Host ""
+          Write-Host "Total packages found: $($allPackages.Count)" -ForegroundColor Cyan
+          
+          # Debug: Show first few packages found
+          Write-Host "Sample of packages found (first 10):" -ForegroundColor Gray
+          $allPackages | Select-Object -First 10 | ForEach-Object { 
+            Write-Host "  $($_.name)" -ForegroundColor Gray 
+          }
+          Write-Host ""
+          
+          $foundPackages = @()
+          $missingPackages = @()
+
+          foreach ($pkg in $keyPackages) {
+            # vcpkg NuGet packages use the format: {portname}_{triplet}
+            $searchPattern = "^${pkg}[._-]${triplet}"
+            
+            # Check if any package matches the pattern
+            $matchedPackages = $allPackages | Where-Object { $_.name -match $searchPattern }
+
+            if ($matchedPackages -and $matchedPackages.Count -gt 0) {
+              $foundPackages += $pkg
+              Write-Host "✓ Found: $pkg ($($matchedPackages.Count) package(s))" -ForegroundColor Green
+              $matchedPackages | Select-Object -First 3 | ForEach-Object {
+                Write-Host "    - $($_.name)" -ForegroundColor Gray
+              }
+            } else {
+              $missingPackages += $pkg
+              Write-Host "✗ Not found: $pkg" -ForegroundColor Red
+            }
+          }
+
+          Write-Host ""
+          Write-Host "=== Summary ===" -ForegroundColor Cyan
+          Write-Host "Packages found: $($foundPackages.Count)/$($keyPackages.Count)" -ForegroundColor $(if ($foundPackages.Count -eq $keyPackages.Count) { "Green" } else { "Yellow" })
+
+          if ($foundPackages.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Found packages:" -ForegroundColor Green
+            $foundPackages | ForEach-Object { Write-Host "  ✓ $_" -ForegroundColor Green }
+          }
+
+          if ($missingPackages.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Missing packages:" -ForegroundColor Yellow
+            $missingPackages | ForEach-Object { Write-Host "  ✗ $_" -ForegroundColor Yellow }
+          }
+
+          # Set output variable for downstream jobs
+          $allPackagesFound = $foundPackages.Count -eq $keyPackages.Count
+          echo "packages-found=$allPackagesFound" >> $env:GITHUB_OUTPUT
+          Write-Host ""
+          Write-Host "packages-found output set to: $allPackagesFound"
 
   verify-cache-exists:
     runs-on: windows-latest
-    needs: check-cache
-    if: needs.check-cache.outputs.cache-hit != 'true'
+    needs: verify-nuget-packages-exist
+    if: needs.verify-nuget-packages-exist.outputs.packages-found != 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Fail with message if cache missing
+      - name: Fail with message if NuGet packages missing
         shell: pwsh
         run: |
-          Write-Host "❌ ERREUR: Cache vcpkg non trouvé ou non sain!" -ForegroundColor Red
+          Write-Host "❌ ERREUR: Packages vcpkg NuGet requis non trouvés!" -ForegroundColor Red
           Write-Host ""
           Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Yellow
           Write-Host "  Le cache binaire NuGet est REQUIS pour ce workflow" -ForegroundColor Yellow
@@ -84,8 +179,8 @@ jobs:
 
   build:
     runs-on: windows-latest
-    needs: [check-cache, verify-cache-exists]
-    if: always() && needs.check-cache.outputs.cache-hit == 'true'
+    needs: [verify-nuget-packages-exist, verify-cache-exists]
+    if: always() && needs.verify-nuget-packages-exist.outputs.packages-found == 'true'
 
     steps:
       - name: Checkout code
