@@ -480,7 +480,7 @@ jobs:
 
   build-heavy-3-pdal:
     runs-on: windows-latest
-    needs: build-heavy-2-pcl
+    needs: [build-core, build-geo, build-heavy-1-vtk, build-heavy-2-pcl]
     if: always()
     timeout-minutes: 240
     steps:
