@@ -36,8 +36,17 @@ jobs:
           path: |
             ${{ github.workspace }}/vcpkg/downloads
             ${{ github.workspace }}/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-nuget-${{ hashFiles('**/vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-${{ hashFiles('**/vcpkg.json') }}
           restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-
+            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-
+            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-
+            vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-geo-
+            vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-core-
             vcpkg-${{ runner.os }}-nuget-
 
   verify-cache-exists:
@@ -150,8 +159,17 @@ jobs:
           path: |
             ${{ env.VCPKG_ROOT }}/downloads
             ${{ env.VCPKG_ROOT }}/installed
-          key: vcpkg-${{ runner.os }}-nuget-${{ hashFiles('**/vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-${{ hashFiles('**/vcpkg.json') }}
           restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-
+            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-
+            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-
+            vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-geo-
+            vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-core-
             vcpkg-${{ runner.os }}-nuget-
 
       - name: Configure NuGet authentication
