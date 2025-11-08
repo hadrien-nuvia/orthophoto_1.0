@@ -91,6 +91,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup NuGet
+        shell: pwsh
+        run: |
+          Write-Host "Installing NuGet CLI..." -ForegroundColor Cyan
+          
+          # Install NuGet CLI if not present
+          if (-not (Get-Command nuget -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest -Uri https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -OutFile nuget.exe
+            $nugetPath = Join-Path $PWD "nuget.exe"
+            $env:PATH = "$PWD;$env:PATH"
+            [System.Environment]::SetEnvironmentVariable('PATH', $env:PATH, 'Process')
+          }
+          
+          Write-Host "NuGet version:" -ForegroundColor Green
+          nuget help | Select-Object -First 3
+          Write-Host "✓ NuGet CLI ready" -ForegroundColor Green
+
       - name: Cache Qt installation
         id: qt-cache
         uses: actions/cache@v3
