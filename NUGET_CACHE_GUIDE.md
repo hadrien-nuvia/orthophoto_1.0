@@ -17,8 +17,8 @@ Workflow principal de build utilisant le cache binaire NuGet.
 - ✅ Configuration NuGet automatique
 - ✅ Cache GitHub Actions pour `downloads/` et `installed/`
 - ✅ Support complet de toutes les dépendances (Qt, VTK, PCL, PDAL)
-- ✅ Notification si le cache n'est pas disponible
-- ✅ Continue le build même sans cache (plus lent mais fonctionnel)
+- ✅ **Vérification obligatoire du cache** : le workflow s'arrête si le cache n'existe pas
+- ✅ Message d'erreur clair avec instructions pour créer le cache
 
 ### 2. `.github/workflows/build-cache-nuget.yml`
 Workflow de construction du cache binaire initial avec approche groupée.
@@ -65,27 +65,29 @@ Le cache binaire NuGet doit être construit manuellement la première fois :
 
 Le cache sera construit en ~3-4 heures et sera ensuite disponible pour tous les builds.
 
-⚠️ **Important** : Le workflow `build-nuget.yml` vous notifiera si le cache n'est pas trouvé, mais continuera le build sans cache (ce sera plus lent).
+⚠️ **Important** : Le workflow `build-nuget.yml` **REQUIERT** que le cache existe. Si le cache n'est pas trouvé, le workflow s'arrêtera avec un message d'erreur clair expliquant comment créer le cache.
 
 ### Étape 2 : Utilisation Automatique
 
-Une fois le cache construit, le workflow `build-nuget.yml` l'utilisera automatiquement :
+Une fois le cache construit, le workflow `build-nuget.yml` l'utilisera automatiquement pour des builds rapides (10-15 min).
 
-1. **Avec cache** : Les binaires sont téléchargés depuis GitHub Packages (10-15 min)
-2. **Sans cache** : Les packages sont compilés depuis les sources (3-4 heures)
+**Si le cache n'existe pas** : Le workflow s'arrêtera avec le message suivant :
+```
+❌ ERREUR: Cache vcpkg non trouvé ou non sain!
 
-### Option Alternative : Construction Manuelle du Cache
+═══════════════════════════════════════════════════════════
+  Le cache binaire NuGet est REQUIS pour ce workflow
+═══════════════════════════════════════════════════════════
 
-Pour pré-construire le cache avant le premier build :
+Pour créer le cache, suivez ces étapes:
+  1. Allez dans l'onglet 'Actions' de ce dépôt
+  2. Sélectionnez le workflow: 'Build vcpkg binary cache with NuGet (grouped)'
+  3. Cliquez sur 'Run workflow'
+  4. Attendez la fin de la construction du cache (~3-4 heures)
+  5. Relancez ce workflow
+```
 
-1. Allez dans **Actions** → **Build vcpkg binary cache with NuGet (grouped)**
-2. Cliquez sur **Run workflow**
-3. Sélectionnez la branche
-4. Cliquez sur **Run workflow**
-
-Le cache sera construit en ~3-4 heures et sera ensuite disponible pour tous les builds.
-
-### Option 3 : Utilisation en Local
+### Étape 3 : Utilisation en Local
 
 Pour utiliser le même cache binaire NuGet localement :
 
