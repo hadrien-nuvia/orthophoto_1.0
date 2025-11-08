@@ -199,9 +199,25 @@ jobs:
           $keyPackages | ForEach-Object { Write-Host "  - $_" }
           Write-Host ""
 
-          # Get all packages from NuGet source
+          # Get all packages from NuGet source using 'list' instead of 'search'
+          # 'nuget list' is more reliable with GitHub Packages than 'nuget search'
           Write-Host "Fetching package list from NuGet source..." -ForegroundColor Cyan
-          $allPackagesOutput = & nuget search "" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -PreRelease 2>&1
+          
+          $source = "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          
+          # Try to list packages with vcpkg prefix
+          $listOutput = & nuget list "vcpkg" -Source $source -PreRelease -AllVersions 2>&1
+          
+          # Convert output to string array for easier processing
+          $allPackagesOutput = $listOutput | Where-Object { $_ -is [string] }
+          
+          # Debug: Show first few packages found
+          Write-Host "Sample of packages found (first 10):" -ForegroundColor Gray
+          $allPackagesOutput | Select-Object -First 10 | ForEach-Object { 
+            Write-Host "  $_" -ForegroundColor Gray 
+          }
+          Write-Host ""
           
           $foundPackages = @()
           $missingPackages = @()
@@ -210,13 +226,15 @@ jobs:
             # vcpkg NuGet packages use the format: vcpkg_{triplet}_{portname}_{abi-hash}
             # For example: vcpkg_x64-windows_zlib_abc123
             # We search for packages containing the triplet and port name pattern
-            $searchPattern = "vcpkg_${{ env.VCPKG_DEFAULT_TRIPLET }}_${pkg}"
+            # Note: The triplet uses hyphens which might be converted to underscores
+            $searchPattern = "vcpkg[_-]${triplet}[_-]${pkg}"
             
             # Check if any package matches the pattern
             $found = $false
             foreach ($line in $allPackagesOutput) {
               if ($line -match $searchPattern) {
                 $found = $true
+                Write-Host "  Match found: $line" -ForegroundColor Gray
                 break
               }
             }
