@@ -40,7 +40,7 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-nuget-
 
-  trigger-cache-build:
+  verify-cache-exists:
     runs-on: windows-latest
     needs: check-cache
     if: needs.check-cache.outputs.cache-hit != 'true'
@@ -48,21 +48,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Notify about missing cache
+      - name: Fail with message if cache missing
         shell: pwsh
         run: |
-          Write-Host "⚠️ Cache vcpkg non trouvé!"
+          Write-Host "❌ ERREUR: Cache vcpkg non trouvé ou non sain!" -ForegroundColor Red
           Write-Host ""
-          Write-Host "Pour créer le cache, veuillez lancer manuellement le workflow:"
-          Write-Host "Actions → 'Build vcpkg binary cache with NuGet (grouped)' → Run workflow"
+          Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Yellow
+          Write-Host "  Le cache binaire NuGet est REQUIS pour ce workflow" -ForegroundColor Yellow
+          Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Yellow
           Write-Host ""
-          Write-Host "Le build continuera sans le cache NuGet (plus lent)."
-          Write-Host "Temps estimé: 3-4 heures au lieu de 10-15 minutes avec cache."
+          Write-Host "Pour créer le cache, suivez ces étapes:" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "  1. Allez dans l'onglet 'Actions' de ce dépôt"
+          Write-Host "  2. Sélectionnez le workflow:"
+          Write-Host "     'Build vcpkg binary cache with NuGet (grouped)'"
+          Write-Host "  3. Cliquez sur 'Run workflow'"
+          Write-Host "  4. Attendez la fin de la construction du cache (~3-4 heures)"
+          Write-Host "  5. Relancez ce workflow"
+          Write-Host ""
+          Write-Host "Pour plus d'informations, consultez NUGET_CACHE_GUIDE.md" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Red
+          Write-Host "  L'installation s'arrête ici" -ForegroundColor Red
+          Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Red
+          exit 1
 
   build:
     runs-on: windows-latest
-    needs: [check-cache, trigger-cache-build]
-    if: always() && (needs.check-cache.result == 'success' || needs.trigger-cache-build.result == 'success')
+    needs: [check-cache, verify-cache-exists]
+    if: always() && needs.check-cache.outputs.cache-hit == 'true'
 
     steps:
       - name: Checkout code
