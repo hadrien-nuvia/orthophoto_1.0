@@ -115,7 +115,27 @@ jobs:
           }
           
           $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
-          Write-Host "NuGet configuration créée avec succès"
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
+          
+          # Also configure mono for vcpkg NuGet integration (required for vcpkg to use NuGet)
+          $monoNugetConfigPath = "$env:APPDATA\..\Local\NuGet"
+          if (-not (Test-Path $monoNugetConfigPath)) {
+            New-Item -ItemType Directory -Path $monoNugetConfigPath -Force | Out-Null
+          }
+          $nugetConfig | Out-File -FilePath "$monoNugetConfigPath\NuGet.Config" -Encoding utf8
+          
+          # Fetch vcpkg's NuGet executable and configure the source
+          Write-Host "Configuring vcpkg NuGet binary cache..." -ForegroundColor Cyan
+          $vcpkgNuget = & "$env:VCPKG_ROOT\vcpkg" fetch nuget
+          Write-Host "vcpkg NuGet path: $vcpkgNuget"
+          
+          # Add the GitHub Packages source using vcpkg's nuget (suppress errors if already exists)
+          & $vcpkgNuget sources add -Name "github" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -Username "${{ github.repository_owner }}" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText 2>&1 | Out-Null
+          
+          # Set API key for pushing packages
+          & $vcpkgNuget setapikey "${{ secrets.GITHUB_TOKEN }}" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" 2>&1 | Out-Null
+          
+          Write-Host "✓ vcpkg NuGet binary cache configured successfully" -ForegroundColor Green
 
       - name: Install minizip and freexl
         id: install-core
@@ -231,6 +251,27 @@ jobs:
           }
           
           $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
+          
+          # Also configure mono for vcpkg NuGet integration (required for vcpkg to use NuGet)
+          $monoNugetConfigPath = "$env:APPDATA\..\Local\NuGet"
+          if (-not (Test-Path $monoNugetConfigPath)) {
+            New-Item -ItemType Directory -Path $monoNugetConfigPath -Force | Out-Null
+          }
+          $nugetConfig | Out-File -FilePath "$monoNugetConfigPath\NuGet.Config" -Encoding utf8
+          
+          # Fetch vcpkg's NuGet executable and configure the source
+          Write-Host "Configuring vcpkg NuGet binary cache..." -ForegroundColor Cyan
+          $vcpkgNuget = & "$env:VCPKG_ROOT\vcpkg" fetch nuget
+          Write-Host "vcpkg NuGet path: $vcpkgNuget"
+          
+          # Add the GitHub Packages source using vcpkg's nuget (suppress errors if already exists)
+          & $vcpkgNuget sources add -Name "github" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -Username "${{ github.repository_owner }}" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText 2>&1 | Out-Null
+          
+          # Set API key for pushing packages
+          & $vcpkgNuget setapikey "${{ secrets.GITHUB_TOKEN }}" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" 2>&1 | Out-Null
+          
+          Write-Host "✓ vcpkg NuGet binary cache configured successfully" -ForegroundColor Green
 
       - name: Install geos, proj, gdal
         id: install-geo
@@ -345,6 +386,27 @@ jobs:
           }
           
           $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
+          
+          # Also configure mono for vcpkg NuGet integration (required for vcpkg to use NuGet)
+          $monoNugetConfigPath = "$env:APPDATA\..\Local\NuGet"
+          if (-not (Test-Path $monoNugetConfigPath)) {
+            New-Item -ItemType Directory -Path $monoNugetConfigPath -Force | Out-Null
+          }
+          $nugetConfig | Out-File -FilePath "$monoNugetConfigPath\NuGet.Config" -Encoding utf8
+          
+          # Fetch vcpkg's NuGet executable and configure the source
+          Write-Host "Configuring vcpkg NuGet binary cache..." -ForegroundColor Cyan
+          $vcpkgNuget = & "$env:VCPKG_ROOT\vcpkg" fetch nuget
+          Write-Host "vcpkg NuGet path: $vcpkgNuget"
+          
+          # Add the GitHub Packages source using vcpkg's nuget (suppress errors if already exists)
+          & $vcpkgNuget sources add -Name "github" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -Username "${{ github.repository_owner }}" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText 2>&1 | Out-Null
+          
+          # Set API key for pushing packages
+          & $vcpkgNuget setapikey "${{ secrets.GITHUB_TOKEN }}" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" 2>&1 | Out-Null
+          
+          Write-Host "✓ vcpkg NuGet binary cache configured successfully" -ForegroundColor Green
 
       - name: Install VTK
         id: install-vtk
@@ -459,6 +521,27 @@ jobs:
           }
           
           $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
+          
+          # Also configure mono for vcpkg NuGet integration (required for vcpkg to use NuGet)
+          $monoNugetConfigPath = "$env:APPDATA\..\Local\NuGet"
+          if (-not (Test-Path $monoNugetConfigPath)) {
+            New-Item -ItemType Directory -Path $monoNugetConfigPath -Force | Out-Null
+          }
+          $nugetConfig | Out-File -FilePath "$monoNugetConfigPath\NuGet.Config" -Encoding utf8
+          
+          # Fetch vcpkg's NuGet executable and configure the source
+          Write-Host "Configuring vcpkg NuGet binary cache..." -ForegroundColor Cyan
+          $vcpkgNuget = & "$env:VCPKG_ROOT\vcpkg" fetch nuget
+          Write-Host "vcpkg NuGet path: $vcpkgNuget"
+          
+          # Add the GitHub Packages source using vcpkg's nuget (suppress errors if already exists)
+          & $vcpkgNuget sources add -Name "github" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -Username "${{ github.repository_owner }}" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText 2>&1 | Out-Null
+          
+          # Set API key for pushing packages
+          & $vcpkgNuget setapikey "${{ secrets.GITHUB_TOKEN }}" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" 2>&1 | Out-Null
+          
+          Write-Host "✓ vcpkg NuGet binary cache configured successfully" -ForegroundColor Green
 
       - name: Install PCL
         id: install-pcl
@@ -573,6 +656,27 @@ jobs:
           }
           
           $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
+          
+          # Also configure mono for vcpkg NuGet integration (required for vcpkg to use NuGet)
+          $monoNugetConfigPath = "$env:APPDATA\..\Local\NuGet"
+          if (-not (Test-Path $monoNugetConfigPath)) {
+            New-Item -ItemType Directory -Path $monoNugetConfigPath -Force | Out-Null
+          }
+          $nugetConfig | Out-File -FilePath "$monoNugetConfigPath\NuGet.Config" -Encoding utf8
+          
+          # Fetch vcpkg's NuGet executable and configure the source
+          Write-Host "Configuring vcpkg NuGet binary cache..." -ForegroundColor Cyan
+          $vcpkgNuget = & "$env:VCPKG_ROOT\vcpkg" fetch nuget
+          Write-Host "vcpkg NuGet path: $vcpkgNuget"
+          
+          # Add the GitHub Packages source using vcpkg's nuget (suppress errors if already exists)
+          & $vcpkgNuget sources add -Name "github" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -Username "${{ github.repository_owner }}" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText 2>&1 | Out-Null
+          
+          # Set API key for pushing packages
+          & $vcpkgNuget setapikey "${{ secrets.GITHUB_TOKEN }}" -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" 2>&1 | Out-Null
+          
+          Write-Host "✓ vcpkg NuGet binary cache configured successfully" -ForegroundColor Green
 
       - name: Install PDAL
         id: install-pdal
