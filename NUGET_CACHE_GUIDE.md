@@ -216,9 +216,11 @@ env:
 **Symptôme** : `Failed to save: Unable to reserve cache with key vcpkg-..., another job may be creating this cache`
 
 **Solution** :
-- Cette erreur se produit lorsque plusieurs workflows tentent de sauvegarder le même cache simultanément
-- La configuration de concurrence a été mise à jour pour inclure `${{ github.ref }}` dans le groupe
-- Cela garantit que les workflows exécutés sur différentes branches/PRs ne se gênent pas mutuellement
+- Cette erreur se produit lorsque plusieurs jobs du même workflow tentent de sauvegarder le même cache simultanément
+- **FIX IMPLÉMENTÉ** : Les étapes de sauvegarde de cache ont été modifiées pour ne sauvegarder que si le cache n'existait pas déjà
+- Chaque étape `Save cache` utilise maintenant la condition `if: always() && steps.cache-*.outputs.cache-hit != 'true'`
+- Cela évite les conflits lorsque plusieurs jobs tentent de réserver la même clé de cache
+- La configuration de concurrence inclut `${{ github.ref }}` pour séparer les branches/PRs
 - Si l'erreur persiste, vérifiez qu'il n'y a pas plusieurs exécutions du même workflow sur la même branche
 
 ## Monitoring

@@ -128,7 +128,7 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg" install minizip:$triplet freexl:$triplet --classic --clean-packages-after-build
 
       - name: Save cache (core)
-        if: always()
+        if: always() && steps.cache-core.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
         with:
           path: |
@@ -242,7 +242,7 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg" install geos:$triplet proj:$triplet gdal:$triplet --classic --clean-packages-after-build
 
       - name: Save cache (geo)
-        if: always()
+        if: always() && steps.cache-geo.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
         with:
           path: |
@@ -356,7 +356,7 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg" install vtk:$triplet --classic --clean-packages-after-build
 
       - name: Save cache (heavy-1-vtk)
-        if: always()
+        if: always() && steps.cache-heavy-1.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
         with:
           path: |
@@ -470,7 +470,7 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg" install pcl:$triplet --classic --clean-packages-after-build
 
       - name: Save cache (heavy-2-pcl)
-        if: always()
+        if: always() && steps.cache-heavy-2.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
         with:
           path: |
@@ -593,7 +593,7 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg" install qtbase:$triplet --classic --clean-packages-after-build
 
       - name: Save cache (heavy-3-pdal)
-        if: always()
+        if: always() && steps.cache-heavy-3.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
         with:
           path: |
