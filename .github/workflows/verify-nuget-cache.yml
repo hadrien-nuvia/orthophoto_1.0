@@ -199,15 +199,29 @@ jobs:
           $keyPackages | ForEach-Object { Write-Host "  - $_" }
           Write-Host ""
 
+          # Get all packages from NuGet source
+          Write-Host "Fetching package list from NuGet source..." -ForegroundColor Cyan
+          $allPackagesOutput = & nuget list -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -PreRelease 2>&1
+          
           $foundPackages = @()
           $missingPackages = @()
 
           foreach ($pkg in $keyPackages) {
-            # Try to list the specific package
-            $packageName = "vcpkg-${pkg}-${{ env.VCPKG_DEFAULT_TRIPLET }}"
-            $output = & nuget list $packageName -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -PreRelease 2>&1
+            # vcpkg NuGet packages use the format: vcpkg_{triplet}_{portname}_{abi-hash}
+            # For example: vcpkg_x64-windows_zlib_abc123
+            # We search for packages containing the triplet and port name pattern
+            $searchPattern = "vcpkg_${{ env.VCPKG_DEFAULT_TRIPLET }}_${pkg}"
+            
+            # Check if any package matches the pattern
+            $found = $false
+            foreach ($line in $allPackagesOutput) {
+              if ($line -match $searchPattern) {
+                $found = $true
+                break
+              }
+            }
 
-            if ($output -match $pkg) {
+            if ($found) {
               $foundPackages += $pkg
               Write-Host "✓ Found: $pkg" -ForegroundColor Green
             } else {

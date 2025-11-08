@@ -249,10 +249,12 @@ Le workflow génère un résumé complet avec :
 
 1. Allez dans **Packages** sur la page GitHub du dépôt
 2. Vous devriez voir des packages comme :
-   - `vcpkg-vtk-x64-windows`
-   - `vcpkg-pcl-x64-windows`
-   - `vcpkg-pdal-x64-windows`
+   - `vcpkg_x64-windows_vtk_<hash>` (notez le format avec underscores)
+   - `vcpkg_x64-windows_pcl_<hash>`
+   - `vcpkg_x64-windows_pdal_<hash>`
    - etc.
+
+**Note :** vcpkg utilise le format `vcpkg_{triplet}_{portname}_{abi-hash}` pour nommer ses packages NuGet, où le hash dépend des dépendances et de la configuration.
 
 ### Logs à surveiller
 
