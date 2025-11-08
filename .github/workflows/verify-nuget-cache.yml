@@ -19,9 +19,6 @@ on:
         options:
           - 'true'
           - 'false'
-  schedule:
-    # Run every Monday at 9:00 AM UTC
-    - cron: '0 9 * * 1'
 
 # Cancel in-progress runs when a new run is triggered
 # This allows force-stopping by triggering a new run
