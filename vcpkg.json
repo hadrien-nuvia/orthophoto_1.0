@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "dependencies": [
     "vtk",
-    "pcl",
+    {
+      "name": "pcl",
+      "features": ["visualization"]
+    },
     "pdal"
   ]
 }
