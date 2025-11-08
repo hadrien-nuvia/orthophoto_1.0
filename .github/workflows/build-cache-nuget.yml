@@ -1,0 +1,528 @@
+name: Build vcpkg binary cache with NuGet (grouped)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+# Cancel in-progress runs when a new run is triggered
+# This allows force-stopping by triggering a new run
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-windows
+  # Configuration NuGet pour cache binaire vcpkg
+  VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
+
+jobs:
+  build-core:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          # Retry logic for cloning vcpkg (handles rate limiting)
+          $maxAttempts = 3
+          $attempt = 0
+          $success = $false
+          
+          while (-not $success -and $attempt -lt $maxAttempts) {
+            $attempt++
+            Write-Host "Tentative $attempt de clonage de vcpkg..."
+            
+            try {
+              # Use shallow clone to save time and bandwidth
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+              $success = $true
+              Write-Host "Clonage réussi!"
+            } catch {
+              Write-Host "Échec de la tentative $attempt"
+              if ($attempt -lt $maxAttempts) {
+                Write-Host "Nouvelle tentative dans 10 secondes..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw "Impossible de cloner vcpkg après $maxAttempts tentatives"
+              }
+            }
+          }
+          
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+      - name: Restore vcpkg cache (core)
+        id: cache-core
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-core-
+            vcpkg-${{ runner.os }}-nuget-
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          # Configuration de l'authentification NuGet pour vcpkg
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+          
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+          
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "NuGet configuration créée avec succès"
+
+      - name: Install minizip and freexl
+        id: install-core
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation minizip et freexl avec NuGet binary cache..."
+          Write-Host "VCPKG_BINARY_SOURCES = $env:VCPKG_BINARY_SOURCES"
+          & "$env:VCPKG_ROOT\vcpkg" install minizip:$triplet freexl:$triplet --clean-packages-after-build
+
+      - name: Save cache (core)
+        if: always() && steps.cache-core.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
+
+  build-geo:
+    runs-on: windows-latest
+    needs: build-core
+    if: always()
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          # Retry logic for cloning vcpkg (handles rate limiting)
+          $maxAttempts = 3
+          $attempt = 0
+          $success = $false
+          
+          while (-not $success -and $attempt -lt $maxAttempts) {
+            $attempt++
+            Write-Host "Tentative $attempt de clonage de vcpkg..."
+            
+            try {
+              # Use shallow clone to save time and bandwidth
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+              $success = $true
+              Write-Host "Clonage réussi!"
+            } catch {
+              Write-Host "Échec de la tentative $attempt"
+              if ($attempt -lt $maxAttempts) {
+                Write-Host "Nouvelle tentative dans 10 secondes..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw "Impossible de cloner vcpkg après $maxAttempts tentatives"
+              }
+            }
+          }
+          
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+      - name: Restore vcpkg cache (geo)
+        id: cache-geo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-geo-
+            vcpkg-${{ runner.os }}-nuget-core-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+          
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+          
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+
+      - name: Install geos, proj, gdal
+        id: install-geo
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation geos, proj, gdal avec NuGet binary cache..."
+          & "$env:VCPKG_ROOT\vcpkg" install geos:$triplet proj:$triplet gdal:$triplet --clean-packages-after-build
+
+      - name: Save cache (geo)
+        if: always() && steps.cache-geo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
+
+  build-heavy-1-vtk:
+    runs-on: windows-latest
+    needs: build-geo
+    if: always()
+    timeout-minutes: 240
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          # Retry logic for cloning vcpkg (handles rate limiting)
+          $maxAttempts = 3
+          $attempt = 0
+          $success = $false
+          
+          while (-not $success -and $attempt -lt $maxAttempts) {
+            $attempt++
+            Write-Host "Tentative $attempt de clonage de vcpkg..."
+            
+            try {
+              # Use shallow clone to save time and bandwidth
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+              $success = $true
+              Write-Host "Clonage réussi!"
+            } catch {
+              Write-Host "Échec de la tentative $attempt"
+              if ($attempt -lt $maxAttempts) {
+                Write-Host "Nouvelle tentative dans 10 secondes..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw "Impossible de cloner vcpkg après $maxAttempts tentatives"
+              }
+            }
+          }
+          
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+      - name: Restore vcpkg cache (heavy-1-vtk)
+        id: cache-heavy-1
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-
+            vcpkg-${{ runner.os }}-nuget-geo-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+          
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+          
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+
+      - name: Install VTK
+        id: install-vtk
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation VTK avec NuGet binary cache..."
+          & "$env:VCPKG_ROOT\vcpkg" install vtk:$triplet --clean-packages-after-build
+
+      - name: Save cache (heavy-1-vtk)
+        if: always() && steps.cache-heavy-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-${{ hashFiles('**/vcpkg.json') }}
+
+  build-heavy-2-pcl:
+    runs-on: windows-latest
+    needs: build-heavy-1-vtk
+    if: always()
+    timeout-minutes: 240
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          # Retry logic for cloning vcpkg (handles rate limiting)
+          $maxAttempts = 3
+          $attempt = 0
+          $success = $false
+          
+          while (-not $success -and $attempt -lt $maxAttempts) {
+            $attempt++
+            Write-Host "Tentative $attempt de clonage de vcpkg..."
+            
+            try {
+              # Use shallow clone to save time and bandwidth
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+              $success = $true
+              Write-Host "Clonage réussi!"
+            } catch {
+              Write-Host "Échec de la tentative $attempt"
+              if ($attempt -lt $maxAttempts) {
+                Write-Host "Nouvelle tentative dans 10 secondes..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw "Impossible de cloner vcpkg après $maxAttempts tentatives"
+              }
+            }
+          }
+          
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+      - name: Restore vcpkg cache (heavy-2-pcl)
+        id: cache-heavy-2
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-
+            vcpkg-${{ runner.os }}-nuget-heavy-1-vtk-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+          
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+          
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+
+      - name: Install PCL
+        id: install-pcl
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation PCL avec NuGet binary cache..."
+          & "$env:VCPKG_ROOT\vcpkg" install pcl:$triplet --clean-packages-after-build
+
+      - name: Save cache (heavy-2-pcl)
+        if: always() && steps.cache-heavy-2.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-${{ hashFiles('**/vcpkg.json') }}
+
+  build-heavy-3-pdal:
+    runs-on: windows-latest
+    needs: build-heavy-2-pcl
+    if: always()
+    timeout-minutes: 240
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          # Retry logic for cloning vcpkg (handles rate limiting)
+          $maxAttempts = 3
+          $attempt = 0
+          $success = $false
+          
+          while (-not $success -and $attempt -lt $maxAttempts) {
+            $attempt++
+            Write-Host "Tentative $attempt de clonage de vcpkg..."
+            
+            try {
+              # Use shallow clone to save time and bandwidth
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+              $success = $true
+              Write-Host "Clonage réussi!"
+            } catch {
+              Write-Host "Échec de la tentative $attempt"
+              if ($attempt -lt $maxAttempts) {
+                Write-Host "Nouvelle tentative dans 10 secondes..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw "Impossible de cloner vcpkg après $maxAttempts tentatives"
+              }
+            }
+          }
+          
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+      - name: Restore vcpkg cache (heavy-3-pdal)
+        id: cache-heavy-3
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-
+            vcpkg-${{ runner.os }}-nuget-heavy-2-pcl-${{ hashFiles('**/vcpkg.json') }}
+            vcpkg-${{ runner.os }}-nuget-
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+          
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+          
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+
+      - name: Install PDAL
+        id: install-pdal
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation PDAL avec NuGet binary cache..."
+          & "$env:VCPKG_ROOT\vcpkg" install pdal:$triplet --clean-packages-after-build
+
+      - name: Install qtbase (Qt6)
+        id: install-qtbase
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation qtbase avec NuGet binary cache..."
+          & "$env:VCPKG_ROOT\vcpkg" install qtbase:$triplet --clean-packages-after-build
+
+      - name: Save cache (heavy-3-pdal)
+        if: always() && steps.cache-heavy-3.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-heavy-3-pdal-${{ hashFiles('**/vcpkg.json') }}
+
+      - name: Cache build summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "=== Cache Build Summary (NuGet) ==="
+          Write-Host "Core packages: ${{ needs.build-core.result }}"
+          Write-Host "Geo packages: ${{ needs.build-geo.result }}"
+          Write-Host "VTK: ${{ needs.build-heavy-1-vtk.result }}"
+          Write-Host "PCL: ${{ needs.build-heavy-2-pcl.result }}"
+          Write-Host "PDAL + Qt: ${{ job.status }}"
+          Write-Host "NuGet Binary Cache: ENABLED"

@@ -1,0 +1,9 @@
+{
+  "name": "orthophoto",
+  "version": "0.1.0",
+  "dependencies": [
+    "vtk",
+    "pcl",
+    "pdal"
+  ]
+}

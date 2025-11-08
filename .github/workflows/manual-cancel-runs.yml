@@ -1,0 +1,156 @@
+# Workflow to forcibly cancel (and optionally delete) stuck GitHub Actions runs,
+# and to optionally disable workflows or remove self-hosted runners.
+# Trigger: manual (workflow_dispatch). Use inputs to choose behavior.
+#
+name: Force stop stuck runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Action mode: cancel_only | cancel_and_disable_workflows | cancel_and_remove_selfhosted"
+        required: false
+        default: "cancel_only"
+      delete_after_cancel:
+        description: "Delete runs after cancelling? true/false"
+        required: false
+        default: "false"
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  force-cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel stuck runs (queued / in_progress / requested)
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const currentRunId = context.runId;
+            const mode = (context.payload.inputs && context.payload.inputs.mode) ? context.payload.inputs.mode : 'cancel_only';
+            const deleteAfter = (context.payload.inputs && context.payload.inputs.delete_after_cancel === 'true') ? true : false;
+            core.info(`force-stop: mode=${mode} deleteAfter=${deleteAfter}`);
+
+            const per_page = 100;
+            let page = 1;
+            while (true) {
+              const resp = await github.rest.actions.listWorkflowRunsForRepo({
+                owner, repo, per_page, page
+              });
+              const runs = resp.data.workflow_runs;
+              if (!runs || runs.length === 0) break;
+
+              for (const r of runs) {
+                if (r.id === currentRunId) continue;
+                if (r.status === 'queued' || r.status === 'in_progress' || r.status === 'requested') {
+                  core.info(`Cancelling run ${r.id} (${r.name}) #${r.run_number} event=${r.event} status=${r.status}`);
+                  try {
+                    await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: r.id });
+                  } catch (err) {
+                    core.warning(`Cancel attempt failed for ${r.id}: ${err}`);
+                  }
+                  // Wait a short time and check status
+                  const start = Date.now();
+                  let finished = false;
+                  while (Date.now() - start < 20000) {
+                    const check = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: r.id });
+                    const s = check.data.status;
+                    if (s !== 'in_progress' && s !== 'queued' && s !== 'requested') { finished = true; break; }
+                    await new Promise(res => setTimeout(res, 2000));
+                  }
+                  if (!finished) core.warning(`Run ${r.id} may still be active after cancel attempt`);
+                  if (deleteAfter) {
+                    core.info(`Deleting run ${r.id}`);
+                    try {
+                      await github.rest.actions.deleteWorkflowRun({ owner, repo, run_id: r.id });
+                    } catch (err) {
+                      core.warning(`Delete attempt failed for ${r.id}: ${err}`);
+                    }
+                  }
+                }
+              }
+              if (runs.length < per_page) break;
+              page++;
+            }
+
+            // Optionally disable workflows to prevent relaunch loops
+            if (mode === 'cancel_and_disable_workflows') {
+              core.info('Disabling all workflows (attempt). If this step fails, provide an ADMIN_TOKEN secret with admin rights.');
+              const wfResp = await github.rest.actions.listWorkflowsForRepo({ owner, repo, per_page: 100 });
+              for (const wf of wfResp.data.workflows) {
+                try {
+                  core.info(`Disabling workflow id=${wf.id} path=${wf.path} name=${wf.name}`);
+                  await github.request('PUT /repos/{owner}/{repo}/actions/workflows/{workflow_id}/disable', {
+                    owner, repo, workflow_id: wf.id
+                  });
+                } catch (err) {
+                  core.warning(`Failed to disable workflow ${wf.id}: ${err}`);
+                }
+              }
+            }
+
+            // Optionally remove self-hosted runners (extreme measure, requires admin token)
+            if (mode === 'cancel_and_remove_selfhosted') {
+              core.info('Attempting to remove self-hosted runners for this repo (requires admin token).');
+              try {
+                const runnersResp = await github.rest.actions.listSelfHostedRunnersForRepo({ owner, repo });
+                for (const r of runnersResp.data.runners) {
+                  try {
+                    core.info(`Removing runner id=${r.id} name=${r.name}`);
+                    await github.rest.actions.deleteSelfHostedRunnerFromRepo({ owner, repo, runner_id: r.id });
+                  } catch (err) {
+                    core.warning(`Failed to remove runner ${r.id}: ${err}`);
+                  }
+                }
+              } catch (err) {
+                core.warning(`Listing/removing self-hosted runners failed: ${err}`);
+              }
+            }
+
+            core.info('force-stop job finished.');
+      - name: Extra forced disable/remove using ADMIN_TOKEN (optional)
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          # This step uses an admin PAT (ADMIN_TOKEN) to force-disable workflows and/or remove self-hosted runners
+          # Use mode value from dispatch inputs
+          MODE="${{ github.event.inputs.mode || 'cancel_only' }}"
+          
+          # Check if ADMIN_TOKEN is set
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "ADMIN_TOKEN is not set. Skipping admin forced actions."
+            echo "To use this step, add an ADMIN_TOKEN secret with admin rights to the repository."
+            exit 0
+          fi
+          
+          OWNER="$(echo $REPO | cut -d/ -f1)"
+          REPO_NAME="$(echo $REPO | cut -d/ -f2)"
+          AUTH="Authorization: token $ADMIN_TOKEN"
+          echo "Admin forced actions (mode=$MODE) for $REPO"
+          
+          if [ "$MODE" = "cancel_and_disable_workflows" ] || [ "$MODE" = "cancel_and_remove_selfhosted" ]; then
+            # Disable workflows
+            echo "Listing workflows..."
+            wf_ids=$(curl -s -H "$AUTH" "https://api.github.com/repos/$OWNER/$REPO_NAME/actions/workflows" | jq -r '.workflows[]?.id // empty')
+            for id in $wf_ids; do
+              echo "Disabling workflow $id ..."
+              curl -s -X PUT -H "$AUTH" "https://api.github.com/repos/$OWNER/$REPO_NAME/actions/workflows/$id/disable" -o /dev/null -w "HTTP %{http_code}\n"
+            done
+          fi
+
+          if [ "$MODE" = "cancel_and_remove_selfhosted" ]; then
+            echo "Listing self-hosted runners..."
+            runners=$(curl -s -H "$AUTH" "https://api.github.com/repos/$OWNER/$REPO_NAME/actions/runners" | jq -r '.runners[]?.id // empty')
+            for rid in $runners; do
+              echo "Removing runner $rid ..."
+              curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/$OWNER/$REPO_NAME/actions/runners/$rid" -o /dev/null -w "HTTP %{http_code}\n"
+            done
+          fi
+
+          echo "Admin forced actions completed."

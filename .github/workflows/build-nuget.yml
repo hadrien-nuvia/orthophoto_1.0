@@ -1,0 +1,266 @@
+name: Build Orthophoto App (NuGet Binary Cache)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Cancel in-progress runs of the same workflow for the same branch/PR
+# This allows force-stopping by triggering a new run or pushing new commits
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+  packages: write
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-windows
+  # Configuration NuGet pour cache binaire vcpkg
+  VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
+
+jobs:
+  check-cache:
+    runs-on: windows-latest
+    outputs:
+      cache-hit: ${{ steps.cache-check.outputs.cache-hit }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check for existing vcpkg cache
+        id: cache-check
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            ${{ github.workspace }}/vcpkg/downloads
+            ${{ github.workspace }}/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-nuget-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-
+
+  trigger-cache-build:
+    runs-on: windows-latest
+    needs: check-cache
+    if: needs.check-cache.outputs.cache-hit != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Notify about missing cache
+        shell: pwsh
+        run: |
+          Write-Host "⚠️ Cache vcpkg non trouvé!"
+          Write-Host ""
+          Write-Host "Pour créer le cache, veuillez lancer manuellement le workflow:"
+          Write-Host "Actions → 'Build vcpkg binary cache with NuGet (grouped)' → Run workflow"
+          Write-Host ""
+          Write-Host "Le build continuera sans le cache NuGet (plus lent)."
+          Write-Host "Temps estimé: 3-4 heures au lieu de 10-15 minutes avec cache."
+
+  build:
+    runs-on: windows-latest
+    needs: [check-cache, trigger-cache-build]
+    if: always() && (needs.check-cache.result == 'success' || needs.trigger-cache-build.result == 'success')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Qt installation
+        id: qt-cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ github.workspace }}/Qt
+          key: Qt-${{ runner.os }}-6.5.3
+          restore-keys: |
+            Qt-${{ runner.os }}-
+      
+      - name: Set up Python 3.11
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install aqtinstall
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install aqtinstall
+
+      - name: Install Qt 6.5.3 (qtwidgets module)
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          python -m aqt install-qt windows desktop 6.5.3 win64_msvc2019_64 --outputdir ${{ github.workspace }}/Qt
+        continue-on-error: true
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          # Retry logic for cloning vcpkg (handles rate limiting)
+          $maxAttempts = 3
+          $attempt = 0
+          $success = $false
+          
+          while (-not $success -and $attempt -lt $maxAttempts) {
+            $attempt++
+            Write-Host "Tentative $attempt de clonage de vcpkg..."
+            
+            try {
+              # Use shallow clone to save time and bandwidth
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+              $success = $true
+              Write-Host "Clonage réussi!"
+            } catch {
+              Write-Host "Échec de la tentative $attempt"
+              if ($attempt -lt $maxAttempts) {
+                Write-Host "Nouvelle tentative dans 10 secondes..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw "Impossible de cloner vcpkg après $maxAttempts tentatives"
+              }
+            }
+          }
+          
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+      - name: Restore vcpkg caches (downloads et installed uniquement)
+        id: vcpkg-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-${{ runner.os }}-nuget-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-nuget-
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          # Configuration de l'authentification NuGet pour vcpkg
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+          
+          # Créer le dossier NuGet config s'il n'existe pas
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+          
+          # Écrire le fichier de configuration
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          
+          Write-Host "NuGet configuration créée avec succès"
+
+      - name: Configure vcpkg for NuGet binary caching
+        shell: pwsh
+        run: |
+          # Installer mono pour vcpkg (requis pour NuGet sur Windows)
+          Write-Host "Configuration du cache binaire NuGet vcpkg..."
+          
+          # Définir les variables d'environnement pour vcpkg
+          [System.Environment]::SetEnvironmentVariable('VCPKG_BINARY_SOURCES', $env:VCPKG_BINARY_SOURCES, 'Process')
+          
+          Write-Host "VCPKG_BINARY_SOURCES = $env:VCPKG_BINARY_SOURCES"
+
+      - name: Show cache hit info
+        shell: pwsh
+        run: |
+          Write-Host "vcpkg cache hit: ${{ steps.vcpkg-cache.outputs.cache-hit }}"
+          Write-Host "Configuration NuGet Binary Cache active"
+
+      - name: List vcpkg cache folders (diagnostic)
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "VCPKG_ROOT = $env:VCPKG_ROOT"
+          if (Test-Path $env:VCPKG_ROOT) {
+            Get-ChildItem -Force $env:VCPKG_ROOT | Select-Object Name, LastWriteTime, Mode
+          } else {
+            Write-Host "No vcpkg root found."
+          }
+
+      - name: vcpkg version & help (diagnostic)
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg" version
+          Write-Host "`nConfiguration du cache binaire:"
+          & "$env:VCPKG_ROOT\vcpkg" help binarycaching
+
+      - name: Install dependencies with vcpkg (manifest mode + NuGet cache)
+        shell: pwsh
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "Installation des dépendances avec cache binaire NuGet..."
+          Write-Host "VCPKG_BINARY_SOURCES = $env:VCPKG_BINARY_SOURCES"
+          
+          & "$env:VCPKG_ROOT\vcpkg" install --triplet $triplet --clean-packages-after-build
+
+      - name: Configure CMake (using vcpkg toolchain)
+        shell: pwsh
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ env.VCPKG_DEFAULT_TRIPLET }}
+        run: |
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          $toolchain = "${{ env.VCPKG_ROOT }}\scripts\buildsystems\vcpkg.cmake"
+          $qtPath = "${{ github.workspace }}\Qt\6.5.3\msvc2019_64"
+          
+          Write-Host "Configuring CMake..."
+          Write-Host "Triplet: $triplet"
+          Write-Host "Toolchain: $toolchain"
+          Write-Host "VCPKG_DEFAULT_TRIPLET env: $env:VCPKG_DEFAULT_TRIPLET"
+          
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DVCPKG_TARGET_TRIPLET="$triplet" `
+            -DCMAKE_PREFIX_PATH="$qtPath"
+
+      - name: Build with CMake (Release)
+        shell: pwsh
+        run: |
+          cmake --build build --config Release -- -m
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orthophoto_gui-nuget-${{ runner.os }}
+          path: build/Release/orthophoto_gui.exe
+          if-no-files-found: warn
+
+      - name: Build status summary
+        if: always()
+        shell: pwsh
+        env:
+          JOB_STATUS: ${{ job.status }}
+          VCPKG_CACHE_HIT: ${{ steps.vcpkg-cache.outputs.cache-hit }}
+          QT_CACHE_HIT: ${{ steps.qt-cache.outputs.cache-hit }}
+        run: |
+          Write-Host "=== Build Summary (NuGet Binary Cache) ==="
+          Write-Host "Job Status: $env:JOB_STATUS"
+          Write-Host "vcpkg Cache Hit: $env:VCPKG_CACHE_HIT"
+          Write-Host "Qt Cache Hit: $env:QT_CACHE_HIT"
+          Write-Host "NuGet Binary Cache: ENABLED"
+          Write-Host "VCPKG_BINARY_SOURCES: $env:VCPKG_BINARY_SOURCES"

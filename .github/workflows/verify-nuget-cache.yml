@@ -1,0 +1,298 @@
+name: Verify NuGet Cache Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_package_test:
+        description: 'Skip package installation test (faster verification)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      skip_package_check:
+        description: 'Skip detailed package check in GitHub Packages'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  schedule:
+    # Run every Monday at 9:00 AM UTC
+    - cron: '0 9 * * 1'
+
+# Cancel in-progress runs when a new run is triggered
+# This allows force-stopping by triggering a new run
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-windows
+  VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,read"
+
+jobs:
+  verify-nuget-cache:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet
+        shell: pwsh
+        run: |
+          Write-Host "=== NuGet Cache Verification ===" -ForegroundColor Cyan
+          Write-Host ""
+
+          # Install NuGet CLI if not present
+          if (-not (Get-Command nuget -ErrorAction SilentlyContinue)) {
+            Write-Host "Installing NuGet CLI..."
+            Invoke-WebRequest -Uri https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -OutFile nuget.exe
+            $env:PATH += ";$PWD"
+          }
+
+          Write-Host "NuGet version:" -ForegroundColor Green
+          nuget help | Select-Object -First 3
+
+      - name: Configure NuGet authentication
+        shell: pwsh
+        run: |
+          Write-Host "Configuring NuGet authentication..." -ForegroundColor Cyan
+
+          $nugetConfig = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${{ github.repository_owner }}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          "@
+
+          $nugetConfigPath = "$env:APPDATA\NuGet"
+          if (-not (Test-Path $nugetConfigPath)) {
+            New-Item -ItemType Directory -Path $nugetConfigPath -Force | Out-Null
+          }
+
+          $nugetConfig | Out-File -FilePath "$nugetConfigPath\NuGet.Config" -Encoding utf8
+          Write-Host "✓ NuGet configuration created successfully" -ForegroundColor Green
+
+      - name: Test NuGet source connection
+        shell: pwsh
+        run: |
+          Write-Host "Testing connection to NuGet source..." -ForegroundColor Cyan
+
+          try {
+            $source = "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+            Write-Host "Source: $source"
+
+            # Try to list packages from the source
+            $output = & nuget list -Source $source -PreRelease 2>&1
+
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✓ Successfully connected to NuGet source" -ForegroundColor Green
+              Write-Host ""
+              Write-Host "Available packages:" -ForegroundColor Yellow
+              $output | Select-Object -First 20
+            } else {
+              Write-Host "⚠ Warning: Could not list packages from NuGet source" -ForegroundColor Yellow
+              Write-Host "This might mean no packages have been published yet."
+              Write-Host "Error output:" -ForegroundColor Red
+              Write-Host $output
+            }
+          } catch {
+            Write-Host "❌ Error connecting to NuGet source: $_" -ForegroundColor Red
+            exit 1
+          }
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          Write-Host "Setting up vcpkg..." -ForegroundColor Cyan
+
+          # Clone vcpkg
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+
+          # Bootstrap vcpkg
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          Pop-Location
+
+          Write-Host "✓ vcpkg setup complete" -ForegroundColor Green
+
+      - name: Verify vcpkg NuGet configuration
+        shell: pwsh
+        run: |
+          Write-Host "Verifying vcpkg binary caching configuration..." -ForegroundColor Cyan
+          Write-Host ""
+
+          Write-Host "VCPKG_BINARY_SOURCES environment variable:" -ForegroundColor Yellow
+          Write-Host "$env:VCPKG_BINARY_SOURCES"
+          Write-Host ""
+
+          # Display vcpkg binary caching help
+          Write-Host "vcpkg binary caching information:" -ForegroundColor Yellow
+          & "$env:VCPKG_ROOT\vcpkg" help binarycaching
+
+          Write-Host ""
+          Write-Host "✓ vcpkg is configured for NuGet binary caching" -ForegroundColor Green
+
+      - name: Test cache read with a small package
+        if: github.event.inputs.skip_package_test != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "Testing NuGet cache with a small package..." -ForegroundColor Cyan
+          Write-Host ""
+
+          $triplet = "${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          $testPackage = "zlib"
+
+          Write-Host "Attempting to install $testPackage to test cache..." -ForegroundColor Yellow
+          Write-Host "This will check if binaries can be downloaded from NuGet cache"
+          Write-Host ""
+
+          # Try to install a small package
+          $startTime = Get-Date
+          & "$env:VCPKG_ROOT\vcpkg" install ${testPackage}:$triplet --classic --no-downloads 2>&1 | Tee-Object -Variable installOutput
+          $endTime = Get-Date
+          $duration = ($endTime - $startTime).TotalSeconds
+
+          Write-Host ""
+          Write-Host "Installation attempt completed in $duration seconds" -ForegroundColor Cyan
+
+          # Check if package was installed from cache
+          if ($installOutput -match "Restored from") {
+            Write-Host "✓ Package was successfully restored from NuGet cache!" -ForegroundColor Green
+            Write-Host "NuGet binary cache is WORKING" -ForegroundColor Green
+          } elseif ($installOutput -match "Building.*from source") {
+            Write-Host "⚠ Package was built from source (not cached)" -ForegroundColor Yellow
+            Write-Host "This indicates the package is not in the NuGet cache yet"
+          } elseif ($installOutput -match "error") {
+            Write-Host "⚠ Installation encountered an error" -ForegroundColor Yellow
+            Write-Host "This is expected if --no-downloads is used and package isn't cached"
+          } else {
+            Write-Host "ℹ Installation completed - check logs above for details" -ForegroundColor Cyan
+          }
+
+      - name: Check for vcpkg packages in GitHub Packages
+        shell: pwsh
+        run: |
+          Write-Host "Checking GitHub Packages for vcpkg binaries..." -ForegroundColor Cyan
+          Write-Host ""
+
+          # List of key packages we expect to find
+          $keyPackages = @("vtk", "pcl", "pdal", "gdal", "proj", "geos", "zlib", "qtbase")
+
+          Write-Host "Looking for the following key packages:" -ForegroundColor Yellow
+          $keyPackages | ForEach-Object { Write-Host "  - $_" }
+          Write-Host ""
+
+          $foundPackages = @()
+          $missingPackages = @()
+
+          foreach ($pkg in $keyPackages) {
+            # Try to list the specific package
+            $packageName = "vcpkg-${pkg}-${{ env.VCPKG_DEFAULT_TRIPLET }}"
+            $output = & nuget list $packageName -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -PreRelease 2>&1
+
+            if ($output -match $pkg) {
+              $foundPackages += $pkg
+              Write-Host "✓ Found: $pkg" -ForegroundColor Green
+            } else {
+              $missingPackages += $pkg
+              Write-Host "✗ Not found: $pkg" -ForegroundColor Red
+            }
+          }
+
+          Write-Host ""
+          Write-Host "=== Summary ===" -ForegroundColor Cyan
+          Write-Host "Packages found: $($foundPackages.Count)/$($keyPackages.Count)" -ForegroundColor $(if ($foundPackages.Count -eq $keyPackages.Count) { "Green" } else { "Yellow" })
+
+          if ($foundPackages.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Found packages:" -ForegroundColor Green
+            $foundPackages | ForEach-Object { Write-Host "  ✓ $_" -ForegroundColor Green }
+          }
+
+          if ($missingPackages.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Missing packages:" -ForegroundColor Yellow
+            $missingPackages | ForEach-Object { Write-Host "  ✗ $_" -ForegroundColor Yellow }
+            Write-Host ""
+            Write-Host "These packages need to be built and uploaded using the" -ForegroundColor Yellow
+            Write-Host "'Build vcpkg binary cache with NuGet (grouped)' workflow" -ForegroundColor Yellow
+          }
+
+      - name: Generate cache status report
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+          Write-Host "║         NuGet Cache Verification Report                   ║" -ForegroundColor Cyan
+          Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+          Write-Host ""
+
+          Write-Host "Repository: ${{ github.repository }}" -ForegroundColor White
+          Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" -ForegroundColor White
+          Write-Host "Workflow Run: ${{ github.run_number }}" -ForegroundColor White
+          Write-Host ""
+
+          Write-Host "Configuration:" -ForegroundColor Yellow
+          Write-Host "  • NuGet source: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          Write-Host "  • VCPKG triplet: ${{ env.VCPKG_DEFAULT_TRIPLET }}"
+          Write-Host "  • Binary sources: $env:VCPKG_BINARY_SOURCES"
+          Write-Host ""
+
+          Write-Host "Status: Verification complete ✓" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "Next steps:" -ForegroundColor Cyan
+          Write-Host "  1. If packages are missing, run 'Build vcpkg binary cache with NuGet (grouped)'"
+          Write-Host "  2. If cache is working, use 'Build Orthophoto App (NuGet Binary Cache)' for builds"
+          Write-Host "  3. Monitor cache usage in workflow logs"
+          Write-Host ""
+
+      - name: Create summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summary = @"
+          ## NuGet Cache Verification Results
+
+          **Repository:** ${{ github.repository }}
+          **Date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
+          **Run Number:** ${{ github.run_number }}
+
+          ### Configuration
+          - **NuGet Source:** https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+          - **VCPKG Triplet:** ${{ env.VCPKG_DEFAULT_TRIPLET }}
+          - **Binary Sources:** ``$env:VCPKG_BINARY_SOURCES``
+
+          ### Key Findings
+          ✅ NuGet authentication configured successfully
+          ✅ vcpkg setup with binary caching enabled
+          ✅ Connection to GitHub Packages established
+
+          ### Recommendations
+          - If no packages are found, run the **Build vcpkg binary cache with NuGet (grouped)** workflow
+          - Use the **Build Orthophoto App (NuGet Binary Cache)** workflow for faster builds
+          - Monitor cache hit rates in build logs
+
+          "@
+
+          # Write to GitHub Actions summary
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

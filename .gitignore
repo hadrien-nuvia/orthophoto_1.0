@@ -1,0 +1,40 @@
+*.backup
+output.pcd
+output.cloud
+
+# Build artifacts
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+
+# vcpkg
+vcpkg/
+vcpkg_cache/
+
+# Qt generated files
+*.qm
+moc_*.cpp
+ui_*.h
+
+# OS files
+.DS_Store
+Thumbs.db
