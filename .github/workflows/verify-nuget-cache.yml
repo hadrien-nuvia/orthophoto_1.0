@@ -285,12 +285,10 @@ jobs:
           $missingPackages = @()
 
           foreach ($pkg in $keyPackages) {
-            # vcpkg NuGet packages use the format: vcpkg_{triplet}_{portname}_{abi-hash}
-            # For example: vcpkg_x64-windows_zlib_abc123
-            # We search for packages containing the triplet and port name pattern
-            # Note: The triplet uses hyphens which are converted to underscores in package names
-            $tripletUnderscored = $triplet -replace '-', '_'
-            $searchPattern = "^vcpkg[._-]${tripletUnderscored}[._-]${pkg}[._-]"
+            # vcpkg NuGet packages use the format: {portname}_{triplet}
+            # For example: zlib_x64-windows
+            # We search for packages matching this pattern
+            $searchPattern = "^${pkg}[._-]${triplet}"
             
             # Check if any package matches the pattern
             $matchedPackages = $allPackages | Where-Object { $_.name -match $searchPattern }
