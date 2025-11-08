@@ -211,6 +211,16 @@ env:
 - Nettoyer les anciens caches GitHub Actions
 - Le flag `--clean-packages-after-build` est déjà activé
 
+### Erreur de réservation de cache
+
+**Symptôme** : `Failed to save: Unable to reserve cache with key vcpkg-..., another job may be creating this cache`
+
+**Solution** :
+- Cette erreur se produit lorsque plusieurs workflows tentent de sauvegarder le même cache simultanément
+- La configuration de concurrence a été mise à jour pour inclure `${{ github.ref }}` dans le groupe
+- Cela garantit que les workflows exécutés sur différentes branches/PRs ne se gênent pas mutuellement
+- Si l'erreur persiste, vérifiez qu'il n'y a pas plusieurs exécutions du même workflow sur la même branche
+
 ## Monitoring
 
 ### Vérifier l'état du cache NuGet

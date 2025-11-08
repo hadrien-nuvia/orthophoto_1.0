@@ -6,8 +6,9 @@ on:
 
 # Cancel in-progress runs when a new run is triggered
 # This allows force-stopping by triggering a new run
+# Include ref to prevent collisions between different branches/PRs
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
