@@ -98,8 +98,9 @@ jobs:
             $source = "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
             Write-Host "Source: $source"
 
-            # Try to search packages from the source
-            $output = & nuget search "" -Source $source -PreRelease 2>&1
+            # Try to list packages from the source
+            # 'nuget list' is more reliable than 'nuget search' for GitHub Packages
+            $output = & nuget list "vcpkg" -Source $source -PreRelease 2>&1
 
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✓ Successfully connected to NuGet source" -ForegroundColor Green
@@ -107,7 +108,7 @@ jobs:
               Write-Host "Available packages:" -ForegroundColor Yellow
               $output | Select-Object -First 20
             } else {
-              Write-Host "⚠ Warning: Could not search packages from NuGet source" -ForegroundColor Yellow
+              Write-Host "⚠ Warning: Could not list packages from NuGet source" -ForegroundColor Yellow
               Write-Host "This might mean no packages have been published yet."
               Write-Host "Error output:" -ForegroundColor Red
               Write-Host $output
