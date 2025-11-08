@@ -56,13 +56,14 @@ target_link_libraries(orthophoto_gui PRIVATE
     Qt6::Widgets
     ${VTK_LIBRARIES}
     ${PCL_LIBRARIES}
-    PDAL::PDAL
+    ${PDAL_LIBRARIES}
 )
 
 # Include directories
 target_include_directories(orthophoto_gui PRIVATE
     ${PCL_INCLUDE_DIRS}
     ${VTK_INCLUDE_DIRS}
+    ${PDAL_INCLUDE_DIRS}
 )
 
 # Compile definitions
