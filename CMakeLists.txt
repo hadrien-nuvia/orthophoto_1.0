@@ -70,3 +70,11 @@ target_include_directories(orthophoto_gui PRIVATE
 target_compile_definitions(orthophoto_gui PRIVATE
     ${PCL_DEFINITIONS}
 )
+
+# Windows-specific compile definitions to fix max/min macro conflicts
+if(WIN32)
+    target_compile_definitions(orthophoto_gui PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+    )
+endif()
