@@ -37,6 +37,7 @@ find_package(VTK REQUIRED COMPONENTS
 find_package(PCL REQUIRED COMPONENTS
     common
     io
+    features
     surface
     visualization
 )
