@@ -79,3 +79,117 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
     )
 endif()
+
+# Install target
+install(TARGETS orthophoto_gui
+    RUNTIME DESTINATION bin
+)
+
+# Copy runtime dependencies (DLLs) on Windows
+if(WIN32)
+    # Determine vcpkg bin directory location
+    set(_vcpkg_bin_dir "")
+    if(DEFINED VCPKG_INSTALLED_DIR)
+        set(_vcpkg_bin_dir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+    elseif(DEFINED _VCPKG_INSTALLED_DIR)
+        set(_vcpkg_bin_dir "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+    elseif(DEFINED CMAKE_TOOLCHAIN_FILE)
+        # Extract vcpkg root from toolchain file path
+        get_filename_component(_vcpkg_root "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
+        get_filename_component(_vcpkg_root "${_vcpkg_root}" DIRECTORY)
+        get_filename_component(_vcpkg_root "${_vcpkg_root}" DIRECTORY)
+        set(_vcpkg_bin_dir "${_vcpkg_root}/installed/${VCPKG_TARGET_TRIPLET}/bin")
+    endif()
+    
+    # Get Qt paths
+    set(_qt_bin_dir "")
+    set(_qt_root_dir "")
+    if(TARGET Qt6::Widgets AND TARGET Qt6::qmake)
+        get_target_property(_qmake_executable Qt6::qmake IMPORTED_LOCATION)
+        get_filename_component(_qt_bin_dir "${_qmake_executable}" DIRECTORY)
+        get_filename_component(_qt_root_dir "${_qt_bin_dir}" DIRECTORY)
+    endif()
+    
+    # Install commands for deployment
+    if(_vcpkg_bin_dir AND EXISTS "${_vcpkg_bin_dir}")
+        message(STATUS "Installing DLLs from: ${_vcpkg_bin_dir}")
+        install(DIRECTORY "${_vcpkg_bin_dir}/"
+            DESTINATION bin
+            FILES_MATCHING PATTERN "*.dll"
+        )
+    elseif(_vcpkg_bin_dir)
+        message(WARNING "vcpkg bin directory not found: ${_vcpkg_bin_dir}")
+    endif()
+    
+    if(_qt_bin_dir AND EXISTS "${_qt_bin_dir}")
+        install(DIRECTORY "${_qt_bin_dir}/"
+            DESTINATION bin
+            FILES_MATCHING PATTERN "*.dll"
+        )
+        
+        if(EXISTS "${_qt_root_dir}/plugins/platforms")
+            install(DIRECTORY "${_qt_root_dir}/plugins/platforms"
+                DESTINATION bin/plugins
+            )
+        endif()
+        
+        if(EXISTS "${_qt_root_dir}/plugins/styles")
+            install(DIRECTORY "${_qt_root_dir}/plugins/styles"
+                DESTINATION bin/plugins
+            )
+        endif()
+    endif()
+    
+    # POST_BUILD commands to copy DLLs to build directory
+    # This allows running the executable directly from the build directory without installation
+    
+    # Copy all vcpkg DLLs (including pdalcpp.dll, VTK, PCL, PDAL dependencies)
+    if(_vcpkg_bin_dir AND EXISTS "${_vcpkg_bin_dir}")
+        add_custom_command(TARGET orthophoto_gui POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_vcpkg_bin_dir}"
+            "$<TARGET_FILE_DIR:orthophoto_gui>"
+            COMMENT "Copying runtime DLLs to build directory"
+        )
+    endif()
+    
+    # Copy Qt DLLs and plugins to build directory
+    if(_qt_bin_dir AND EXISTS "${_qt_bin_dir}")
+        # Create plugins directory
+        add_custom_command(TARGET orthophoto_gui POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:orthophoto_gui>/plugins"
+            COMMENT "Creating plugins directory"
+        )
+        
+        # Copy Qt DLLs
+        add_custom_command(TARGET orthophoto_gui POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_qt_bin_dir}/Qt6Core.dll"
+            "${_qt_bin_dir}/Qt6Gui.dll"
+            "${_qt_bin_dir}/Qt6Widgets.dll"
+            "$<TARGET_FILE_DIR:orthophoto_gui>"
+            COMMENT "Copying Qt DLLs to build directory"
+        )
+        
+        # Copy platform plugins
+        if(EXISTS "${_qt_root_dir}/plugins/platforms")
+            add_custom_command(TARGET orthophoto_gui POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${_qt_root_dir}/plugins/platforms"
+                "$<TARGET_FILE_DIR:orthophoto_gui>/plugins/platforms"
+                COMMENT "Copying Qt platform plugins to build directory"
+            )
+        endif()
+        
+        # Copy style plugins
+        if(EXISTS "${_qt_root_dir}/plugins/styles")
+            add_custom_command(TARGET orthophoto_gui POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${_qt_root_dir}/plugins/styles"
+                "$<TARGET_FILE_DIR:orthophoto_gui>/plugins/styles"
+                COMMENT "Copying Qt style plugins to build directory"
+            )
+        endif()
+    endif()
+endif()
