@@ -474,6 +474,58 @@ gh release create deps-v1 vcpkg-deps-windows-x64.tar.gz --title "Dependencies v1
 
 ## Dépannage
 
+### L'exécutable ne démarre pas - DLL manquante (pdalcpp.dll, etc.)
+
+**Symptômes** : 
+- "Impossible d'exécuter le code car pdalcpp.dll est introuvable"
+- "The code execution cannot proceed because [DLL name] was not found"
+- L'application se ferme immédiatement au démarrage
+
+**Cause** : Les DLLs requises ne sont pas dans le même répertoire que l'exécutable ou dans le PATH système.
+
+**Solution automatique** (recommandée) :
+Le projet est maintenant configuré pour copier automatiquement toutes les DLLs requises lors de la compilation. Après avoir compilé avec CMake, toutes les DLLs nécessaires sont dans le répertoire de l'exécutable.
+
+```bash
+# Recompilez le projet pour déclencher la copie des DLLs
+cd build
+cmake --build . --config Release
+
+# Les DLLs sont automatiquement copiées dans build/Release/
+# L'exécutable peut maintenant être lancé directement
+./Release/orthophoto_gui.exe
+```
+
+**Solution manuelle** (si nécessaire) :
+Si la copie automatique ne fonctionne pas, copiez manuellement les DLLs :
+
+```powershell
+# Depuis le répertoire build
+# Copier toutes les DLLs vcpkg
+copy C:\vcpkg\installed\x64-windows\bin\*.dll .\Release\
+
+# Copier les DLLs Qt
+copy C:\Qt\6.5.3\msvc2019_64\bin\Qt6Core.dll .\Release\
+copy C:\Qt\6.5.3\msvc2019_64\bin\Qt6Gui.dll .\Release\
+copy C:\Qt\6.5.3\msvc2019_64\bin\Qt6Widgets.dll .\Release\
+
+# Copier les plugins Qt
+xcopy /E /I C:\Qt\6.5.3\msvc2019_64\plugins\platforms .\Release\plugins\platforms
+xcopy /E /I C:\Qt\6.5.3\msvc2019_64\plugins\styles .\Release\plugins\styles
+```
+
+**Vérification** :
+Après compilation, vérifiez que les DLLs sont bien présentes :
+
+```powershell
+# Dans le répertoire build/Release, vous devez voir :
+dir *.dll
+# Doit afficher : pdalcpp.dll, vtk*.dll, pcl_*.dll, Qt6*.dll, etc.
+
+dir plugins\platforms
+# Doit afficher : qwindows.dll, etc.
+```
+
 ### Cache ne fonctionne pas
 
 **Symptômes** : Les packages sont recompilés à chaque fois

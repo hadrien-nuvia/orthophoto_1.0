@@ -64,6 +64,10 @@ vcpkg install qtbase vtk pcl pdal --triplet x64-windows
 mkdir build && cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=[chemin-vcpkg]/scripts/buildsystems/vcpkg.cmake
 cmake --build . --config Release
+
+# Note: Les DLLs requises (pdalcpp.dll, VTK, PCL, Qt, etc.) sont automatiquement
+# copiées dans le répertoire de l'exécutable lors de la compilation.
+# L'exécutable peut être lancé directement depuis build/Release/orthophoto_gui.exe
 ```
 
 Pour des instructions détaillées, consultez [DEVELOPMENT.md](DEVELOPMENT.md).
